@@ -1,0 +1,4 @@
+github.com/gorilla/websocket v1.4.0 h1:WDFjx/TMzVgy9VdMMQi2K2Emtwi2QcUQsztZ/zLaH/Q=
+github.com/gorilla/websocket v1.4.0/go.mod h1:E7qHFY5m1UJ88s3WnNqhKjPHQ0heANvMoAMk2YaljkQ=
+github.com/miguelmota/gundb-port-go v0.0.0-20190219033956-f49b69232bfc h1:QxLDcuF5sMzxYHsMLd1Cfuw6utqrLU7oB0/sZYmY9iY=
+github.com/miguelmota/gundb-port-go v0.0.0-20190219033956-f49b69232bfc/go.mod h1:1tGjV01D7ucC3f381RXngtWlxuF5hVziBsKoVQB/Uq4=
