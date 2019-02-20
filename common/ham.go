@@ -103,8 +103,8 @@ func Mix(change map[string]interface{}, graph map[string]interface{}) map[string
 			}
 			if !hm.Incoming {
 				if hm.Defer {
-					fmt.Println("defer", key, val)
-					// need to implement this
+					// TODO: need to implement this
+					// fmt.Println("defer", key, val)
 				}
 
 				continue

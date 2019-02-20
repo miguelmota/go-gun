@@ -6,6 +6,6 @@ import (
 )
 
 func main() {
-	http.Handle("/", http.FileServer(http.Dir("./html")))
+	http.Handle("/", http.FileServer(http.Dir("./example")))
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }

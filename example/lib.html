@@ -1,0 +1,25 @@
+<script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+<script>
+const gun = Gun('ws://localhost:8080')
+
+gun.get('person').put({
+  name: 'Alice',
+  email: 'alice@example.com'
+})
+
+gun.get('person').on((data, key) => {
+  console.log('update:', data)
+})
+
+setTimeout(() => {
+  gun.get('person').put({
+    name: 'Alice',
+    email: 'alice@foo.bar',
+    color: 'red'
+  })
+
+  gun.get('person').on((data, key) => {
+    console.log('update:', data)
+  })
+}, 2e3)
+</script>

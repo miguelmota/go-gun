@@ -20,7 +20,7 @@ var ErrServerAlreadyStarted = errors.New("server already started")
 type Server struct {
 	host    string
 	port    uint
-	peers   []*ws.Conn
+	peers   map[string]*ws.Conn
 	graph   map[string]interface{}
 	dup     *common.Dup
 	server  *http.Server
@@ -65,7 +65,7 @@ func NewServer(config *Config) *Server {
 	return &Server{
 		host:  fmt.Sprintf("0.0.0.0:%v", port),
 		port:  port,
-		peers: []*ws.Conn{},
+		peers: make(map[string]*ws.Conn),
 		graph: make(map[string]interface{}),
 		dup:   common.NewDup(),
 		debug: config.Debug,
@@ -83,7 +83,7 @@ func (s *Server) Start() error {
 	s.server = srv
 	http.HandleFunc("/", s.RequestHandler)
 
-	fmt.Printf("listening on %s\n", s.host)
+	log.Printf("listening on %s\n", s.host)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}
@@ -100,22 +100,30 @@ func (s *Server) Stop() error {
 func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 	peer, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Error(err)
+		return
 	}
 
-	s.peers = append(s.peers, peer)
+	s.peers[peer.RemoteAddr().String()] = peer
 
 	for {
 		// read message from browser
 		_, msg, err := peer.ReadMessage()
+		if ws.IsCloseError(err) {
+			log.Error(err)
+			s.RemovePeer(peer)
+			return
+		}
 		if err != nil {
-			log.Fatal(err)
+			//log.Error(err)
+			return
 		}
 
 		var js map[string]interface{}
 		err = json.Unmarshal(msg, &js)
 		if err != nil {
-			log.Fatal(err)
+			//log.Error(err)
+			continue
 		}
 
 		soul := js["#"].(string)
@@ -125,8 +133,11 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.dup.Track(soul)
-		fmt.Printf("received: %s\n", js)
-		fmt.Printf("from: %s\n", peer.RemoteAddr())
+		//fmt.Println("received:")
+		//spew.Dump(msg)
+		if s.debug {
+			fmt.Printf("from: %s\n", peer.RemoteAddr())
+		}
 
 		var resp []byte
 		if change, ok := js["put"]; ok {
@@ -135,14 +146,13 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 			//fmt.Println("diff", diff)
 
 			uid := s.dup.Track(common.NewUID())
-			s.logGraph()
-
 			resp, err = json.Marshal(map[string]interface{}{
 				"#": uid,
 				"@": soul,
 			})
 			if err != nil {
-				log.Fatal(err)
+				log.Error(err)
+				continue
 			}
 		} else if getValue, ok := js["get"]; ok {
 			ack := common.Get(getValue.(map[string]interface{}), s.graph)
@@ -154,18 +164,22 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 					"put": ack,
 				})
 				if err != nil {
-					log.Fatal(err)
+					log.Error(err)
+					continue
 				}
 			}
 		}
 
 		s.logGraph()
+
 		if err := s.Emit(resp); err != nil {
-			log.Fatal(err)
+			log.Error(err)
+			continue
 		}
 
 		if err := s.Emit(msg); err != nil {
-			log.Fatal(err)
+			log.Error(err)
+			continue
 		}
 	}
 }
@@ -177,26 +191,23 @@ func (s *Server) Emit(msg []byte) error {
 
 // RemovePeer removes a peer from the peer list
 func (s *Server) RemovePeer(peer *ws.Conn) error {
-	for i, pn := range s.peers {
-		if pn == peer {
-			s.peers = append(s.peers[:i], s.peers[i+1:]...)
-			break
-		}
-	}
-
+	delete(s.peers, peer.RemoteAddr().String())
 	return nil
 }
 
 // logGraph logs the graph structure
 func (s *Server) logGraph() {
-	spew.Dump(s.graph)
+	if s.debug {
+		spew.Dump(s.graph)
+	}
 }
 
 // emit emits message to the peer list
-func emit(peers []*ws.Conn, msg []byte) error {
+func emit(peers map[string]*ws.Conn, msg []byte) error {
 	for _, peer := range peers {
 		if err := peer.WriteMessage(ws.TextMessage, msg); err != nil {
-			return err
+			//log.Error(err)
+			continue
 		}
 	}
 
