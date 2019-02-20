@@ -1,6 +1,6 @@
 # go-gun
 
-> [GunDB](https://github.com/amark/gun) backend port in Go (golang)
+> [GunDB](https://github.com/amark/gun) implementation in Go (golang)
 
 NOTE: is this is a work-in-progress
 
