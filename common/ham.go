@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strconv"
 	"time"
 )
 
@@ -60,10 +61,21 @@ func Mix(change map[string]interface{}, graph map[string]interface{}) map[string
 	var diff map[string]interface{}
 
 	for soul := range change {
-		node := change[soul].(map[string]interface{})
+		fmt.Println("CHANGE", change)
+		fmt.Println("SOUL", soul)
+		fmt.Println("BOTH", change[soul])
+		node, ok := change[soul].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fmt.Println("NODE", node)
 		for key := range node {
 			val := node[key]
 			if key == "_" {
+				continue
+			}
+
+			if node["_"] == nil {
 				continue
 			}
 
@@ -90,9 +102,29 @@ func Mix(change map[string]interface{}, graph map[string]interface{}) map[string
 				known = graphsoul.(map[string]interface{})[key]
 			}
 
+			fmt.Println("SATE", state)
+			if state == nil {
+				state = 0
+			}
+
+			var stateF float64
+			switch v := state.(type) {
+			case nil:
+				v = 0
+			case string:
+				var err error
+				stateF, err = strconv.ParseFloat(v, 64)
+				if err != nil {
+					stateF = 0
+					fmt.Println(err)
+				}
+			case float64:
+				stateF = v
+			}
+
 			hm, err := Ham(
 				float64(machine.Unix()),
-				state.(float64),
+				stateF,
 				was.(float64),
 				val,
 				known,

@@ -5,7 +5,7 @@ import "testing"
 func TestDup(t *testing.T) {
 	d := NewDup()
 
-	id := d.Random()
+	id := NewUID()
 	exist := d.Check(id)
 
 	if exist {

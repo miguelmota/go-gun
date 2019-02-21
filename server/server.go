@@ -10,6 +10,7 @@ import (
 	spew "github.com/davecgh/go-spew/spew"
 	ws "github.com/gorilla/websocket"
 	common "github.com/miguelmota/go-gun/common"
+	storage "github.com/miguelmota/go-gun/storage"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -26,6 +27,7 @@ type Server struct {
 	server  *http.Server
 	started bool
 	debug   bool
+	storage storage.IStorage
 }
 
 // Config is the server config
@@ -63,12 +65,13 @@ func NewServer(config *Config) *Server {
 	}
 
 	return &Server{
-		host:  fmt.Sprintf("0.0.0.0:%v", port),
-		port:  port,
-		peers: make(map[string]*ws.Conn),
-		graph: make(map[string]interface{}),
-		dup:   common.NewDup(),
-		debug: config.Debug,
+		host:    fmt.Sprintf("0.0.0.0:%v", port),
+		port:    port,
+		peers:   make(map[string]*ws.Conn),
+		graph:   make(map[string]interface{}),
+		dup:     common.NewDup(),
+		debug:   config.Debug,
+		storage: storage.NewDummyKV(),
 	}
 }
 
@@ -109,6 +112,9 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 	for {
 		// read message from browser
 		_, msg, err := peer.ReadMessage()
+		if msg == nil {
+			return
+		}
 		if ws.IsCloseError(err) {
 			log.Error(err)
 			s.RemovePeer(peer)
@@ -126,7 +132,14 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		soul := js["#"].(string)
+		if js == nil {
+			continue
+		}
+
+		soul, ok := js["#"].(string)
+		if !ok {
+			continue
+		}
 
 		if s.dup.Check(soul) {
 			continue
@@ -143,9 +156,14 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 		if change, ok := js["put"]; ok {
 			diff := common.Mix(change.(map[string]interface{}), s.graph)
 			_ = diff
-			//fmt.Println("diff", diff)
+			fmt.Println("server change", change)
+			fmt.Println("server diff", diff)
+			fmt.Println("server graph", s.graph)
 
 			uid := s.dup.Track(common.NewUID())
+
+			fmt.Println("#", uid)
+			fmt.Println("@", soul)
 			resp, err = json.Marshal(map[string]interface{}{
 				"#": uid,
 				"@": soul,
@@ -154,8 +172,27 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 				log.Error(err)
 				continue
 			}
+
+			for soul, node := range diff {
+				for k, v := range node.(map[string]interface{}) {
+					if k == "_" {
+						continue
+					}
+
+					kstate := diff[soul].(map[string]interface{})["_"].(map[string]interface{})[">"].(map[string]interface{})[k]
+					s.storage.Put(soul, k, v, kstate)
+				}
+			}
 		} else if getValue, ok := js["get"]; ok {
-			ack := common.Get(getValue.(map[string]interface{}), s.graph)
+			//ack := common.Get(getValue.(map[string]interface{}), s.graph)
+			k := getValue.(map[string]interface{})["#"].(string)
+			fmt.Println("GET", k)
+			r := s.storage.Get(k, nil)
+			ack := make(map[string]interface{})
+			ack[soul] = r
+			fmt.Println("ACK")
+			//spew.Dump(s.graph)
+			spew.Dump(ack)
 			if ack != nil {
 				uid := s.dup.Track(common.NewUID())
 				resp, err = json.Marshal(map[string]interface{}{
@@ -163,6 +200,7 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 					"@":   soul,
 					"put": ack,
 				})
+
 				if err != nil {
 					log.Error(err)
 					continue
@@ -172,15 +210,19 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 
 		s.logGraph()
 
+		fmt.Println("RESP", string(resp))
+
 		if err := s.Emit(resp); err != nil {
 			log.Error(err)
 			continue
 		}
 
-		if err := s.Emit(msg); err != nil {
-			log.Error(err)
-			continue
-		}
+		/*
+			if err := s.Emit(msg); err != nil {
+				log.Error(err)
+				continue
+			}
+		*/
 	}
 }
 
