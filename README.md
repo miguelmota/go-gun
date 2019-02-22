@@ -6,6 +6,9 @@ NOTE: is this is an early work-in-progress, highly unstable.
 
 ## Getting started
 
+TODO
+
+<!--
 ```go
 package main
 
@@ -45,6 +48,7 @@ gun.get('person').on((data, key) => {
 })
 </script>
 ```
+-->
 
 ## Test
 
