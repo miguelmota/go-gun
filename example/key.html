@@ -10,7 +10,8 @@ peer.onopen = function(o){
   setTimeout(function(){
     var msg = {
       '#': dup.track(Dup.random()),
-      get: {'#': 'FDSA', '.': 'species'}
+      //get: {'#': 'FDSA', '.': 'species'}
+      get: {'#': 'FDSA'}
     }
     peer.send(JSON.stringify(msg));
   },2000);

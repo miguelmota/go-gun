@@ -3,13 +3,14 @@ package client
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/davecgh/go-spew/spew"
 	ws "github.com/gorilla/websocket"
 	common "github.com/miguelmota/go-gun/common"
 	storage "github.com/miguelmota/go-gun/storage"
+	types "github.com/miguelmota/go-gun/types"
+	log "github.com/sirupsen/logrus"
 )
 
 var upgrader = ws.Upgrader{
@@ -31,7 +32,7 @@ type Client struct {
 	wsendpoint string
 	ws         *ws.Conn
 	storage    storage.IStorage
-	graph      map[string]interface{}
+	graph      types.Kv
 }
 
 // NewClient ...
@@ -41,11 +42,13 @@ func NewClient(wsendpoint string) *Client {
 		log.Fatal(err)
 	}
 
+	graph := make(types.Kv)
+
 	return &Client{
 		wsendpoint: wsendpoint,
 		ws:         ws,
-		storage:    storage.NewDummyKV(),
-		graph:      make(map[string]interface{}),
+		storage:    storage.NewDummyKV(graph),
+		graph:      graph,
 	}
 }
 
@@ -56,51 +59,44 @@ func (c *Client) Send(msg interface{}) error {
 		return err
 	}
 
-	fmt.Println("sending", string(b))
-
 	err = c.ws.WriteMessage(ws.TextMessage, b)
 	if err != nil {
 		return err
 	}
 
-	/*
-	   ch = format_put_request(soul, **kwargs)
-	   ch_str = json.dumps(ch)
-	   # print("Change: {} ".format(ch))
-	   await ws.send(ch_str)
-	   resp = await ws.recv()
-	   # print("RESP: {} ".format(resp))
-	   return resp
-	*/
-
 	return nil
 }
 
 // Put ...
-func (c *Client) Put(soul string, args ...map[string]interface{}) {
+func (c *Client) Put(soul string, args ...types.Kv) {
 	change := FormatPutRequest(soul, args...)
-	fmt.Println("sending", change)
 
 	c.Send(change)
 
-	_, msg, err := c.ws.ReadMessage()
+	_, _, err := c.ws.ReadMessage()
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	log.Printf("put recv: %s", msg)
 }
 
 // Get ...
-func (c *Client) Get(soul1 string, key *string) interface{} {
-	change1 := FormatGetRequest(soul1)
-	fmt.Println("getting", change1)
+func (c *Client) Get(soul string, key *string) types.Kv {
+	change1 := FormatGetRequest(soul)
 
 	c.Send(change1)
 
-	_, msg, err := c.ws.ReadMessage()
-	if err != nil {
-		log.Fatal(err)
+	var msg []byte
+	var err error
+	for {
+		_, msg, err = c.ws.ReadMessage()
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+		if string(msg) == "" {
+			continue
+		}
+		break
 	}
 
 	log.Printf("recv: %s", msg)
@@ -111,86 +107,40 @@ func (c *Client) Get(soul1 string, key *string) interface{} {
 		log.Fatal(err)
 	}
 
-	fmt.Println("loaded")
-	spew.Dump(loaded)
-
-	change := make(map[string]interface{})
-	if change1, ok := loaded["put"].(map[string]interface{}); ok {
-		change = change1
-	}
-	soul := loaded["#"].(string)
-
-	fmt.Println("LOAD SOUL", soul)
-
-	fmt.Println("GAPH")
-	fmt.Println("CHANGE", change)
-	spew.Dump(c.graph)
+	change := common.IToKv(loaded["put"])
+	soul1 := loaded["#"].(string)
 	diff := common.Mix(change, c.graph)
-	fmt.Println("GAPH")
-	spew.Dump(c.graph)
 
-	resp := make(map[string]interface{})
-	resp["@"] = soul
+	resp := make(types.Kv)
+	resp["@"] = soul1
 	resp["#"] = common.NewUID()
 
-	fmt.Println("DIFF", diff)
-	spew.Dump(diff)
-
-	_ = resp
-
 	for sol, node := range diff {
-		fmt.Println("NODE")
 		spew.Dump(node)
-		for k, v := range node.(map[string]interface{}) {
+		for k, v := range node.(types.Kv) {
 			if k == "_" {
 				continue
 			}
-			fmt.Println("YOOO", k)
 
-			kstate := diff[sol].(map[string]interface{})["_"].(map[string]interface{})[">"].(map[string]interface{})[k]
-
-			fmt.Println("PUT", sol, k, v)
-
+			kstate := common.GetStateOfProp(diff[sol].(types.Kv), k)
 			c.storage.Put(sol, k, v, kstate)
 		}
 	}
-	fmt.Println("GET", soul, key)
 
 	return c.storage.Get(soul, key)
+}
 
-	/*
-	   ch = format_get_request(soul)
-	   ch_str = json.dumps(ch)
-	   # print("Change: {} ".format(ch))
-	   await ws.send(ch_str)
-	   resp = await ws.recv()
-	   loaded = json.loads(resp)
-	   # print("RESP: {} ".format(resp))
-	   change = loaded['put']
-	   # print("CHANGE IS: ", change)
-	   soul = loaded['#']
-	   diff = ham_mix(change, self.backend)
-
-	   resp = {'@':soul, '#':newuid(), 'ok':True}
-	   # print("DIFF:", diff)
-
-	   for soul, node in diff.items():
-	       for k, v in node.items():
-	           if k == "_":
-	               continue
-	           kstate = diff[soul]['_']['>'][k]
-	           print("KSTATE: ", kstate)
-	           self.backend.put(soul, k, v, kstate)
-	   return self.backend.get(soul, key)
-	*/
+// Close ...
+func (c *Client) Close() {
+	c.ws.Close()
 }
 
 // FormatPutRequest ...
-func FormatPutRequest(soul string, args ...map[string]interface{}) map[string]interface{} {
+func FormatPutRequest(soul string, args ...types.Kv) types.Kv {
 	change := make(map[string]interface{})
 	change["#"] = common.NewUID()
-	change["put"] = make(map[string]interface{})
-	change["put"].(map[string]interface{})[soul] = common.NewNode(soul, args...)
+	change["put"] = make(types.Kv)
+	change["put"].(types.Kv)[soul] = common.NewNode(soul, args...)
 
 	js, _ := json.Marshal(change)
 	fmt.Println("PUTTTT", string(js))
@@ -199,11 +149,12 @@ func FormatPutRequest(soul string, args ...map[string]interface{}) map[string]in
 }
 
 // FormatGetRequest ...
-func FormatGetRequest(soul string) map[string]interface{} {
-	change := make(map[string]interface{})
+func FormatGetRequest(soul string) types.Kv {
+	change := make(types.Kv)
+
 	change["#"] = common.NewUID()
-	change["get"] = make(map[string]interface{})
-	change["get"].(map[string]interface{})["#"] = soul
+	change["get"] = make(types.Kv)
+	change["get"].(types.Kv)["#"] = soul
 
 	return change
 }

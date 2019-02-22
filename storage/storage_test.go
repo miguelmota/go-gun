@@ -1,19 +1,25 @@
 package storage
 
 import (
-	"fmt"
 	"testing"
+
+	types "github.com/miguelmota/go-gun/types"
 )
 
 func TestDummyKV(t *testing.T) {
-	db := NewDummyKV()
+	backing := make(types.Kv)
+	db := NewDummyKV(backing)
 
-	db.Put("abc", "foo", "bar", make(map[string]interface{}))
+	db.Put("abc", "foo", "bar", make(types.Kv))
 
-	val := db.Get("abc", nil)
-	fmt.Println("RET1", val)
+	v1 := db.Get("abc", nil)
+	if v1["foo"].(string) != "bar" {
+		t.Error("expected foo to be bar")
+	}
 
 	k := "foo"
-	value := db.Get("abc", &k)
-	fmt.Println("RET2", value)
+	v2 := db.Get("abc", &k)
+	if v2["foo"].(string) != "bar" {
+		t.Error("expected foo to be bar")
+	}
 }

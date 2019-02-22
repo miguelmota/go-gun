@@ -3,22 +3,30 @@ package common
 import (
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
+	types "github.com/miguelmota/go-gun/types"
 )
 
 func TestNode(t *testing.T) {
 	node := NewNode("abc")
 
-	spew.Dump(node)
-
-	kv := map[string]interface{}{
-		"foo": "bar",
-	}
-	kv2 := map[string]interface{}{
-		"qux": "baz",
+	soul := node["_"].(types.Kv)["#"].(string)
+	if soul != "abc" {
+		t.Error("expected soul to equal abc")
 	}
 
-	node2 := NewNode("abc", kv, kv2)
+	kv1 := types.Kv{
+		"foo": "goo",
+	}
+	kv2 := types.Kv{
+		"bar": "baz",
+	}
 
-	spew.Dump(node2)
+	node2 := NewNode("abc", kv1, kv2)
+
+	if node2["foo"].(string) != "goo" {
+		t.Error("expected kv1 to equal goo")
+	}
+	if node2["bar"].(string) != "baz" {
+		t.Error("expected kv2 to equal baz")
+	}
 }

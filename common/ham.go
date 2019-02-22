@@ -3,10 +3,12 @@ package common
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
-	"strconv"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	types "github.com/miguelmota/go-gun/types"
 )
 
 // HamResponse ...
@@ -28,25 +30,31 @@ func Ham(
 	currentValue interface{},
 ) (*HamResponse, error) {
 	if machineState < incomingState {
+		// the incoming value is outside the boundary of the machine's state, it must be reprocessed in another state
 		return &HamResponse{Defer: true}, nil
 	}
 	if incomingState < currentState {
+		// the incoming value is within the boundary of the machine's state, but not within the range
 		return &HamResponse{Historical: true}, nil
 	}
 	if currentState < incomingState {
+		// the incoming value is within both the boundary and the range of the machine's state
 		return &HamResponse{Converge: true, Incoming: true}, nil
 	}
 	var incomingVal string
 	var currentVal string
 	if incomingState == currentState {
-		incomingVal = Lexical(incomingValue)
-		currentVal = Lexical(currentValue)
+		incomingVal = lexical(incomingValue)
+		currentVal = lexical(currentValue)
+		// NOTE: while these are practically the same, the deltas could technically be different
 		if incomingVal == currentVal {
 			return &HamResponse{State: true}, nil
 		}
+		// string only works on primitive values
 		if incomingVal < currentVal {
 			return &HamResponse{Converge: true, Current: true}, nil
 		}
+		// string only works on primitive values
 		if currentVal < incomingVal {
 			return &HamResponse{Converge: true, Incoming: true}, nil
 		}
@@ -56,127 +64,77 @@ func Ham(
 }
 
 // Mix applies updates 'change' to the graph
-func Mix(change map[string]interface{}, graph map[string]interface{}) map[string]interface{} {
-	machine := time.Now()
-	var diff map[string]interface{}
+func Mix(change types.Kv, graph types.Kv) types.Kv {
+	// NOTE: the timestamp are coming from js client that uses nanoseconds
+	machine := float64(time.Now().Unix() * 1e3)
+	diff := make(types.Kv)
 
-	for soul := range change {
-		fmt.Println("CHANGE", change)
-		fmt.Println("SOUL", soul)
-		fmt.Println("BOTH", change[soul])
-		node, ok := change[soul].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		fmt.Println("NODE", node)
-		for key := range node {
-			val := node[key]
+	for soul, inode := range change {
+		node := iToKv(inode)
+		for key, val := range node {
 			if key == "_" {
 				continue
 			}
 
 			if node["_"] == nil {
-				continue
+				log.Fatal("should not be nil")
 			}
 
 			// equiv: state = node._['>'][key]
-			state := node["_"].(map[string]interface{})[">"].(map[string]interface{})[key]
-
-			// equiv: was = (graph[soul]||{_:{'>':{}}})._['>'][key] || -Infinity
-			var was interface{}
-			soulv, ok := graph[soul]
-
-			if ok {
-				was = soulv.(map[string]interface{})["_"].(map[string]interface{})[">"].(map[string]interface{})[key]
-			}
-
-			if was == nil {
-				// 'infinity'
+			state := getStateOfProp(node, key)
+			oldNode := iToKv(graph[soul])
+			was := getStateOfProp(oldNode, key)
+			if was == 0 {
+				// NOTE: "infinity"
 				was = float64(math.MinInt64)
 			}
 
 			// equiv: known = (graph[soul]||{})[key]
-			var known interface{}
-			graphsoul, ok := graph[soul]
-			if ok {
-				known = graphsoul.(map[string]interface{})[key]
-			}
-
-			fmt.Println("SATE", state)
-			if state == nil {
-				state = 0
-			}
-
-			var stateF float64
-			switch v := state.(type) {
-			case nil:
-				v = 0
-			case string:
-				var err error
-				stateF, err = strconv.ParseFloat(v, 64)
-				if err != nil {
-					stateF = 0
-					fmt.Println(err)
-				}
-			case float64:
-				stateF = v
-			}
-
+			var known interface{} = get(oldNode, key)
 			hm, err := Ham(
-				float64(machine.Unix()),
-				stateF,
-				was.(float64),
+				machine,
+				state,
+				was,
 				val,
 				known,
 			)
-
 			if err != nil {
 				log.Fatal(err)
 			}
+
 			if !hm.Incoming {
 				if hm.Defer {
 					// TODO: need to implement this
-					// fmt.Println("defer", key, val)
 				}
 
 				continue
 			}
 
-			if diff == nil {
-				diff = make(map[string]interface{})
-			}
-
-			_, ok = diff[soul]
+			_, ok := diff[soul]
 			if !ok {
 				// equiv: graph[soul] = {_:{'#':soul, '>':{}}}
-				diff[soul] = make(map[string]interface{})
-				diff[soul].(map[string]interface{})["_"] = make(map[string]interface{})
-				diff[soul].(map[string]interface{})["_"].(map[string]interface{})["#"] = soul
-				diff[soul].(map[string]interface{})["_"].(map[string]interface{})[">"] = make(map[string]interface{})
+				diff[soul] = newNode(soul)
 			}
 
 			_, ok = graph[soul]
 			if !ok {
 				// equiv: graph[soul] = {_:{'#':soul, '>':{}}}
-				graph[soul] = make(map[string]interface{})
-				graph[soul].(map[string]interface{})["_"] = make(map[string]interface{})
-				graph[soul].(map[string]interface{})["_"].(map[string]interface{})["#"] = soul
-				graph[soul].(map[string]interface{})["_"].(map[string]interface{})[">"] = make(map[string]interface{})
+				graph[soul] = newNode(soul)
 			}
 
-			graph[soul].(map[string]interface{})[key] = val
-			diff[soul].(map[string]interface{})[key] = val
+			graph[soul].(types.Kv)[key] = val
+			diff[soul].(types.Kv)[key] = val
 
-			diff[soul].(map[string]interface{})["_"].(map[string]interface{})[">"].(map[string]interface{})[key] = state
-			graph[soul].(map[string]interface{})["_"].(map[string]interface{})[">"].(map[string]interface{})[key] = state
+			diff[soul].(types.Kv)["_"].(types.Kv)[">"].(types.Kv)[key] = state
+			graph[soul].(types.Kv)["_"].(types.Kv)[">"].(types.Kv)[key] = state
 		}
 	}
 
 	return diff
 }
 
-// Lexical ...
-func Lexical(value interface{}) string {
+// lexical ...
+func lexical(value interface{}) string {
 	js, err := json.Marshal(value)
 	if err != nil {
 		log.Fatal(err)

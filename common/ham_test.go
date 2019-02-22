@@ -1,6 +1,8 @@
 package common
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestHam(t *testing.T) {
 	var machineState, incomingState, currentState, incomingValue, currentValue float64
@@ -10,5 +12,7 @@ func TestHam(t *testing.T) {
 		t.Error(err)
 	}
 
-	_ = h
+	if !h.State {
+		t.Error("expected State to be true")
+	}
 }

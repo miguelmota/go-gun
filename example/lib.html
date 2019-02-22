@@ -11,15 +11,15 @@ gun.get('person').on((data, key) => {
   console.log('update:', data)
 })
 
-setTimeout(() => {
+setTimeout(async () => {
   gun.get('person').put({
     name: 'Alice',
     email: 'alice@foo.bar',
     color: 'red'
   })
 
-  gun.get('person').on((data, key) => {
-    console.log('update:', data)
+  gun.get('person').get('name').once(data => {
+    console.log(data)
   })
 }, 2e3)
 </script>

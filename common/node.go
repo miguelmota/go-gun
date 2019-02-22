@@ -1,16 +1,32 @@
 package common
 
-// NewNode ...
-func NewNode(name string, args ...map[string]interface{}) map[string]interface{} {
-	node := make(map[string]interface{})
+import types "github.com/miguelmota/go-gun/types"
 
-	node["_"] = make(map[string]interface{})
-	node["_"].(map[string]interface{})["#"] = name
-	node["_"].(map[string]interface{})[">"] = make(map[string]interface{})
+// NewNode returns a new node
+func NewNode(name string, args ...types.Kv) types.Kv {
+	return newNode(name, args...)
+}
+
+// GetStateOfProp ...
+func GetStateOfProp(node types.Kv, key string) float64 {
+	return getStateOfProp(node, key)
+}
+
+// IToKv ...
+func IToKv(i interface{}) types.Kv {
+	return iToKv(i)
+}
+
+func newNode(name string, args ...types.Kv) types.Kv {
+	node := make(types.Kv)
+
+	node["_"] = make(types.Kv)
+	node["_"].(types.Kv)["#"] = name
+	node["_"].(types.Kv)[">"] = make(types.Kv)
 
 	for _, arg := range args {
 		for k, v := range arg {
-			node["_"].(map[string]interface{})[">"].(map[string]interface{})[k] = 0
+			node["_"].(types.Kv)[">"].(types.Kv)[k] = 0
 			node[k] = v
 		}
 	}
@@ -18,19 +34,32 @@ func NewNode(name string, args ...map[string]interface{}) map[string]interface{}
 	return node
 }
 
-// GetState ...
-func GetState(node map[string]interface{}) map[string]interface{} {
-	if _, ok := node["_"]; ok {
-		return node["_"].(map[string]interface{})[">"].(map[string]interface{})
+func getState(node types.Kv) types.Kv {
+	if meta, ok := node["_"]; ok {
+		return meta.(types.Kv)[">"].(types.Kv)
 	}
 
-	return make(map[string]interface{})
+	return make(types.Kv)
 }
 
-/*
-def new_node(name, **kwargs):
-    # node with meta
-    node = {'_': {'#':name, '>':{k:0 for k in kwargs}}, **kwargs}
-    print("NODE IS :" , node)
-    return node
-*/
+func getStateOfProp(node types.Kv, key string) float64 {
+	v, _ := iToKv(iToKv(node["_"])[">"])[key].(float64)
+	return v
+}
+
+func get(node interface{}, key string) interface{} {
+	return node.(types.Kv)[key]
+}
+
+func iToKv(i interface{}) types.Kv {
+	switch v := i.(type) {
+	case nil:
+		return types.Kv{}
+	case types.Kv:
+		return v
+	case map[string]interface{}:
+		return types.Kv(i.(map[string]interface{}))
+	default:
+		return types.Kv{}
+	}
+}

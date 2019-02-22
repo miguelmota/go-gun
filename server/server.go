@@ -10,7 +10,9 @@ import (
 	spew "github.com/davecgh/go-spew/spew"
 	ws "github.com/gorilla/websocket"
 	common "github.com/miguelmota/go-gun/common"
+	netutil "github.com/miguelmota/go-gun/netutil"
 	storage "github.com/miguelmota/go-gun/storage"
+	types "github.com/miguelmota/go-gun/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -22,7 +24,7 @@ type Server struct {
 	host    string
 	port    uint
 	peers   map[string]*ws.Conn
-	graph   map[string]interface{}
+	graph   types.Kv
 	dup     *common.Dup
 	server  *http.Server
 	started bool
@@ -32,7 +34,7 @@ type Server struct {
 
 // Config is the server config
 type Config struct {
-	Port  uint
+	Port  *uint
 	Debug bool
 }
 
@@ -60,18 +62,27 @@ func NewServer(config *Config) *Server {
 	}
 
 	port := DefaultPort
-	if config.Port != 0 {
-		port = config.Port
+	if config.Port != nil {
+		port = *config.Port
+		if port == 0 {
+			p, err := netutil.GetFreePort()
+			if err != nil {
+				log.Fatal(err)
+			}
+			port = uint(p)
+		}
 	}
+
+	graph := make(types.Kv)
 
 	return &Server{
 		host:    fmt.Sprintf("0.0.0.0:%v", port),
 		port:    port,
 		peers:   make(map[string]*ws.Conn),
-		graph:   make(map[string]interface{}),
+		graph:   graph,
 		dup:     common.NewDup(),
 		debug:   config.Debug,
-		storage: storage.NewDummyKV(),
+		storage: storage.NewDummyKV(graph),
 	}
 }
 
@@ -125,7 +136,7 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var js map[string]interface{}
+		var js types.Kv
 		err = json.Unmarshal(msg, &js)
 		if err != nil {
 			//log.Error(err)
@@ -146,25 +157,13 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.dup.Track(soul)
-		//fmt.Println("received:")
-		//spew.Dump(msg)
-		if s.debug {
-			fmt.Printf("from: %s\n", peer.RemoteAddr())
-		}
 
 		var resp []byte
 		if change, ok := js["put"]; ok {
-			diff := common.Mix(change.(map[string]interface{}), s.graph)
-			_ = diff
-			fmt.Println("server change", change)
-			fmt.Println("server diff", diff)
-			fmt.Println("server graph", s.graph)
-
+			diff := common.Mix(types.Kv(change.(map[string]interface{})), s.graph)
 			uid := s.dup.Track(common.NewUID())
 
-			fmt.Println("#", uid)
-			fmt.Println("@", soul)
-			resp, err = json.Marshal(map[string]interface{}{
+			resp, err = json.Marshal(types.Kv{
 				"#": uid,
 				"@": soul,
 			})
@@ -174,28 +173,24 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			for soul, node := range diff {
-				for k, v := range node.(map[string]interface{}) {
+				for k, v := range node.(types.Kv) {
 					if k == "_" {
 						continue
 					}
 
-					kstate := diff[soul].(map[string]interface{})["_"].(map[string]interface{})[">"].(map[string]interface{})[k]
+					kstate := diff[soul].(types.Kv)["_"].(types.Kv)[">"].(types.Kv)[k]
+					_ = soul
+					_ = k
+					_ = v
+					_ = kstate
 					s.storage.Put(soul, k, v, kstate)
 				}
 			}
 		} else if getValue, ok := js["get"]; ok {
-			//ack := common.Get(getValue.(map[string]interface{}), s.graph)
-			k := getValue.(map[string]interface{})["#"].(string)
-			fmt.Println("GET", k)
-			r := s.storage.Get(k, nil)
-			ack := make(map[string]interface{})
-			ack[soul] = r
-			fmt.Println("ACK")
-			//spew.Dump(s.graph)
-			spew.Dump(ack)
+			ack := common.Get(common.IToKv(getValue), s.graph)
 			if ack != nil {
 				uid := s.dup.Track(common.NewUID())
-				resp, err = json.Marshal(map[string]interface{}{
+				resp, err = json.Marshal(types.Kv{
 					"#":   uid,
 					"@":   soul,
 					"put": ack,
@@ -208,27 +203,25 @@ func (s *Server) RequestHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		s.logGraph()
-
-		fmt.Println("RESP", string(resp))
-
 		if err := s.Emit(resp); err != nil {
 			log.Error(err)
 			continue
 		}
-
-		/*
-			if err := s.Emit(msg); err != nil {
-				log.Error(err)
-				continue
-			}
-		*/
 	}
 }
 
 // Emit emits message to all connected peers
 func (s *Server) Emit(msg []byte) error {
-	return emit(s.peers, msg)
+	for _, peer := range s.peers {
+		if err := peer.WriteMessage(ws.TextMessage, msg); err != nil {
+			if err := s.RemovePeer(peer); err != nil {
+				log.Fatal(err)
+			}
+			continue
+		}
+	}
+
+	return nil
 }
 
 // RemovePeer removes a peer from the peer list
@@ -242,16 +235,4 @@ func (s *Server) logGraph() {
 	if s.debug {
 		spew.Dump(s.graph)
 	}
-}
-
-// emit emits message to the peer list
-func emit(peers map[string]*ws.Conn, msg []byte) error {
-	for _, peer := range peers {
-		if err := peer.WriteMessage(ws.TextMessage, msg); err != nil {
-			//log.Error(err)
-			continue
-		}
-	}
-
-	return nil
 }

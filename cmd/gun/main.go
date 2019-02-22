@@ -15,8 +15,9 @@ func main() {
 		debug = true
 	}
 
+	port := uint(8080)
 	srv := server.NewServer(&server.Config{
-		Port:  8080,
+		Port:  &port,
 		Debug: debug,
 	})
 

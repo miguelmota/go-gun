@@ -8,7 +8,10 @@ import (
 )
 
 func TestServer(t *testing.T) {
-	srv := NewServer(&Config{})
+	var port uint
+	srv := NewServer(&Config{
+		Port: &port,
+	})
 	go func() {
 		err := srv.Start()
 		if err != nil {

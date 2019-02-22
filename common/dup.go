@@ -3,6 +3,8 @@ package common
 import (
 	"math/rand"
 	"time"
+
+	types "github.com/miguelmota/go-gun/types"
 )
 
 // Opt ...
@@ -13,14 +15,14 @@ type Opt struct {
 
 // Dup ...
 type Dup struct {
-	value map[string]interface{}
+	value types.Kv
 	opt   *Opt
 }
 
 // NewDup ...
 func NewDup() *Dup {
-	value := make(map[string]interface{})
-	value["s"] = make(map[string]interface{})
+	value := make(types.Kv)
+	value["s"] = make(types.Kv)
 
 	return &Dup{
 		value: value,
@@ -33,7 +35,7 @@ func NewDup() *Dup {
 
 // Check ...
 func (d *Dup) Check(id string) bool {
-	_, ok := d.value["s"].(map[string]interface{})[id]
+	_, ok := d.value["s"].(types.Kv)[id]
 	if ok {
 		d.Track(id)
 		return true
@@ -44,18 +46,18 @@ func (d *Dup) Check(id string) bool {
 
 // Track ...
 func (d *Dup) Track(id string) string {
-	d.value["s"].(map[string]interface{})[id] = time.Now()
+	d.value["s"].(types.Kv)[id] = time.Now()
 
 	_, ok := d.value["to"]
 	if !ok {
 		d.value["to"] = time.AfterFunc(time.Duration(d.opt.Age), func() {
-			for id, v := range d.value["s"].(map[string]interface{}) {
+			for id, v := range d.value["s"].(types.Kv) {
 				t := v.(time.Time)
 				if d.opt.Age > time.Now().Unix()-t.Unix() {
 					continue
 				}
 
-				delete(d.value["s"].(map[string]interface{}), id)
+				delete(d.value["s"].(types.Kv), id)
 			}
 
 			delete(d.value, "to")
